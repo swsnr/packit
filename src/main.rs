@@ -31,18 +31,21 @@
 )]
 #![forbid(unsafe_code)]
 
+use std::io::prelude::*;
+
 use alpm::{Alpm, Package};
 use clap::Parser;
 use pacgraph::graph::{DependencyEdge, PackageNode};
 use petgraph::visit::{
     Data, EdgeFiltered, EdgeRef, GraphProp, GraphRef, IntoEdgeReferences, IntoNeighbors,
     IntoNeighborsDirected, IntoNodeIdentifiers, IntoNodeReferences, NodeCount, NodeIndexable,
-    Visitable,
+    Reversed, Visitable, depth_first_search,
 };
+use tracing::debug;
 
 use crate::{
     args::CliArgs,
-    print::{print_package_graph, print_package_one_line},
+    print::{DisplayPackageAnsi, print_package_graph},
 };
 
 mod args;
@@ -62,11 +65,10 @@ where
         + IntoNodeReferences,
 {
     let orphans = pacgraph::dependencies::orphans(&graph);
-
+    let with_version = !options.graph_options.quiet;
     let mut stdout = anstream::stdout().lock();
-
     if options.graph_options.dot {
-        print_package_graph(&mut stdout, graph, options.graph_options.oneline_style())
+        print_package_graph(&mut stdout, graph, with_version)
     } else {
         let mut orphan_nodes = orphans
             .node_identifiers()
@@ -76,7 +78,11 @@ where
         orphan_nodes.sort_by_key(|pkg| pkg.name());
 
         for pkg in orphan_nodes {
-            print_package_one_line(&mut stdout, pkg, options.graph_options.oneline_style())?;
+            writeln!(
+                &mut stdout,
+                "{}",
+                DisplayPackageAnsi::new(pkg).with_version(with_version)
+            )?;
         }
         Ok(())
     }
@@ -116,14 +122,43 @@ where
 {
     let mut stdout = anstream::stdout().lock();
     let dependents = pacgraph::dependencies::dependents(&pkg_graph, package);
+    let with_version = !options.graph_options.quiet;
     if options.graph_options.dot {
-        print_package_graph(
-            &mut stdout,
-            &dependents,
-            options.graph_options.oneline_style(),
-        )
+        print_package_graph(&mut stdout, &dependents, with_version)
     } else {
-        todo!()
+        let rdepends = Reversed(&dependents);
+        let mut subtrees = HashMap::new();
+        depth_first_search(
+            &rdepends,
+            [PackageNode::new(package)],
+            |event| match event {
+                petgraph::visit::DfsEvent::Discover(node, _) => {
+                    debug!("Discover: {node}");
+                }
+                petgraph::visit::DfsEvent::TreeEdge(parent, child) => {
+                    debug!("Edge: {parent} -> {child}");
+                }
+                petgraph::visit::DfsEvent::BackEdge(child, parent) => {
+                    debug!("Back edge: {child} -> {parent}");
+                }
+                petgraph::visit::DfsEvent::CrossForwardEdge(a, b) => {
+                    debug!("Forward edge: {a} -> {b}");
+                }
+                petgraph::visit::DfsEvent::Finish(node, _) => {
+                    debug!("Finish: {node}");
+                }
+            },
+        );
+        Ok(())
+        // for node in DfsPostOrder::new(&rdepends, PackageNode::new(package)).iter(&rdepends) {
+        //     let tree = termtree::Tree::new(DisplayPackageAnsi::new(node.package())).with_leaves(
+        //         rdepends
+        //             .neighbors_directed(node, Direction::Outgoing)
+        //             .map(|n| subtrees[&n].clone()),
+        //     );
+        //     subtrees.insert(node, tree);
+        // }
+        // writeln!(&mut stdout, "{}", subtrees[&PackageNode::new(package)])
     }
 }
 

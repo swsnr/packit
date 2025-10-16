@@ -6,6 +6,7 @@
 
 //! Utilities for printing packages.
 
+use std::fmt::Display;
 use std::io::prelude::*;
 
 use anstyle::{AnsiColor, Reset, Style};
@@ -17,32 +18,40 @@ use petgraph::{
     },
 };
 
-/// How to print a package.
-#[derive(Debug, Copy, Clone)]
-pub enum PrintOneLine {
-    /// Only print the name.
-    NameOnly,
-    /// Print with version.
-    WithVersion,
+/// Print a package node in one line.
+#[derive(Debug, Clone)]
+pub struct DisplayPackageAnsi<P> {
+    package: P,
+    with_version: bool,
 }
 
-/// Print a package on one single line.
-pub fn print_package_one_line<W: Write>(
-    write: &mut W,
-    package: &alpm::Package,
-    how: PrintOneLine,
-) -> Result<(), std::io::Error> {
-    match how {
-        PrintOneLine::NameOnly => writeln!(write, "{}", package.name()),
-        PrintOneLine::WithVersion => {
+impl<P> DisplayPackageAnsi<P> {
+    pub fn new(package: P) -> Self {
+        Self {
+            package,
+            with_version: false,
+        }
+    }
+
+    pub fn with_version(mut self, with_version: bool) -> Self {
+        self.with_version = with_version;
+        self
+    }
+}
+
+impl Display for DisplayPackageAnsi<&alpm::Package> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.with_version {
             let bold = Style::new().bold();
             let green = bold.fg_color(Some(AnsiColor::Green.into()));
-            writeln!(
-                write,
+            write!(
+                f,
                 "{bold}{} {green}{}{Reset}",
-                package.name(),
-                package.version()
+                self.package.name(),
+                self.package.version()
             )
+        } else {
+            write!(f, "{}", self.package.name())
         }
     }
 }
@@ -51,7 +60,7 @@ pub fn print_package_one_line<W: Write>(
 pub fn print_package_graph<'a, G, W: Write>(
     write: &mut W,
     graph: G,
-    format: PrintOneLine,
+    with_version: bool,
 ) -> std::io::Result<()>
 where
     G: GraphProp
@@ -62,16 +71,17 @@ where
 {
     let get_node_attributes = |_graph, node: G::NodeRef| {
         let package = node.weight();
-        match format {
-            PrintOneLine::NameOnly => format!(
-                "label = <<FONT FACE=\"sans-serif\">{}</FONT>>",
-                package.name()
-            ),
-            PrintOneLine::WithVersion => format!(
+        if with_version {
+            format!(
                 "label = <<FONT FACE=\"sans-serif\"><B>{name} <FONT COLOR=\"green\">{version}</FONT></B></FONT>>",
                 name = package.name(),
                 version = package.version()
-            ),
+            )
+        } else {
+            format!(
+                "label = <<FONT FACE=\"sans-serif\">{}</FONT>>",
+                package.name()
+            )
         }
     };
     let dot = Dot::with_attr_getters(

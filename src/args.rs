@@ -6,8 +6,6 @@
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::print::PrintOneLine;
-
 const AFTER_LONG_HELP: &str = "\
 Automatically print colored output if stdout is a TTY, unless overridden by
 environment variables as follows:
@@ -71,16 +69,6 @@ pub struct GraphOptions {
     /// Render the graph as dot.
     #[clap(long)]
     pub dot: bool,
-}
-
-impl GraphOptions {
-    pub fn oneline_style(&self) -> PrintOneLine {
-        if self.quiet {
-            PrintOneLine::NameOnly
-        } else {
-            PrintOneLine::WithVersion
-        }
-    }
 }
 
 /// Generate shell completions.
